@@ -1,0 +1,7 @@
+data/
+files/
+models/*
+models/modelo_entrenado.pkl
+models/no_pedestrian_hog_accum.pkl
+models/pedestrian_hog_accum.pkl
+models/modelo_entrenado.zip
