@@ -220,7 +220,7 @@ class ModelTrainer:
         plt.legend(loc='lower right')
         plt.show()
 
-    def random_search_svc(self, Xtrainval, ytrainval, X_test, y_test, n_iter=2, cv=2, random_state=42, best_params=None, param_grid_svc=None):
+    def random_search_svc(self, Xtrainval, ytrainval, X_test, y_test, n_iter=3, cv=3, random_state=42, best_params=None, param_grid_svc=None):
         """
         Ejecuta RandomizedSearchCV para optimizar los hiperparámetros de un modelo SVC o entrena directamente con los mejores parámetros.
         :param Xtrainval: Conjunto de características de entrenamiento y validación.
@@ -377,115 +377,63 @@ class DecisionBoundaryPlotter:
 # Main code
 if __name__ == "__main__":
 
-    # Cargar y mostrar imágenes de peatones
+    # 1. Cargar rutas de imágenes
     loader = ImageLoader()
     images = loader.load_images()
-    #image_sample = loader.show_pedestrian_image(index=0)  # Cambia el índice según sea necesario
-    pedestrian_image = cv2.imread(images["pedestrian"][0])  # Cargar una imagen directamente
-    
-    
-    # Aplicar HOG a una imagen de ejemplo
+    paths_pedestrian = images["pedestrian"]
+    paths_nopedestrian = images["no_pedestrian"]
+
+    # 2. Crear lista de rutas y etiquetas
+    X_paths = paths_pedestrian + paths_nopedestrian
+    y_labels = [1] * len(paths_pedestrian) + [0] * len(paths_nopedestrian)
+
+    # 3. Separar train/test/val sobre las rutas (no sobre HOG aún)
+    X_train_paths, X_temp_paths, y_train, y_temp = train_test_split(X_paths, y_labels, test_size=0.3, stratify=y_labels, random_state=42)
+    X_val_paths, X_test_paths, y_val, y_test = train_test_split(X_temp_paths, y_temp, test_size=0.5, stratify=y_temp, random_state=42)
+
+    print(f"Train: {len(X_train_paths)}, Val: {len(X_val_paths)}, Test: {len(X_test_paths)}")
+
+    # 4. Aplicar HOG a cada conjunto (sin fuga)
     hog_processor = HOGProcessor()
-    # Usar una imagen cargada directamente
-    hog_processor.show_hog(image=pedestrian_image)  
-    # Usar una ruta de imagen
-    hog_processor.show_hog(image_path=images["pedestrian"][0])
 
-    # Directorio para guardar los archivos
-    model_dir = r"C:\Git\TecMonterrrey\NavegacionAutonoma\navegacionautonoma_pip_p310\navegacionautonoma_py310\DeteccionPeatonesSVM\models"
-    os.makedirs(model_dir, exist_ok=True)  # Crear el directorio si no existe
+    X_train = hog_processor.process_images(X_train_paths)
+    X_val = hog_processor.process_images(X_val_paths)
+    X_test = hog_processor.process_images(X_test_paths)
 
-    # Rutas completas para los archivos
-    pedestrian_hog_file = os.path.join(model_dir, "pedestrian_hog_accum.pkl")
-    no_pedestrian_hog_file = os.path.join(model_dir, "no_pedestrian_hog_accum.pkl")
+    X_train = np.vstack(X_train).astype(np.float64)
+    X_val = np.vstack(X_val).astype(np.float64)
+    X_test = np.vstack(X_test).astype(np.float64)
 
-     # Verificar si ya existe el archivo de características HOG para peatones
-    try:
-        with open(pedestrian_hog_file, "rb") as f:
-            pedestrian_hog_accum = pickle.load(f)
-            print("Características HOG de peatones cargadas desde el archivo.")
-    except FileNotFoundError:
-        # Si no existe, procesar las imágenes y guardar los resultados
-        pedestrian_hog_accum = hog_processor.process_images(images["pedestrian"])
-        print(f"Características HOG de peatones procesadas: {len(pedestrian_hog_accum)} imágenes.")
-        with open(pedestrian_hog_file, "wb") as f:
-            pickle.dump(pedestrian_hog_accum, f)
-            print(f"Características HOG de peatones guardadas en {pedestrian_hog_file}.")
+    y_train = np.array(y_train)
+    y_val = np.array(y_val)
+    y_test = np.array(y_test)
 
-    # Verificar si ya existe el archivo de características HOG para no peatones
-    try:
-        with open(no_pedestrian_hog_file, "rb") as f:
-            no_pedestrian_hog_accum = pickle.load(f)
-            print("Características HOG de no peatones cargadas desde el archivo.")
-    except FileNotFoundError:
-        # Si no existe, procesar las imágenes y guardar los resultados
-        no_pedestrian_hog_accum = hog_processor.process_images(images["no_pedestrian"])
-        print(f"Características HOG de no peatones procesadas: {len(no_pedestrian_hog_accum)} imágenes.")
-        with open(no_pedestrian_hog_file, "wb") as f:
-            pickle.dump(no_pedestrian_hog_accum, f)
-            print(f"Características HOG de no peatones guardadas en {no_pedestrian_hog_file}.")
-
-    # Convertir las listas acumuladas en matrices numpy
-    # y crear etiquetas para cada clase
-    X_pedestrian = np.vstack(pedestrian_hog_accum).astype(np.float64)
-    y_pedestrian = np.ones(len(X_pedestrian))
-
-    # Convertir las listas acumuladas en matrices numpy
-    # y crear etiquetas para cada clase
-    X_nopedestrian = np.vstack(no_pedestrian_hog_accum).astype(np.float64)
-    y_nopedestrian = np.zeros(len(X_nopedestrian))
-    
-    # Concatenar las características y etiquetas
-    # para crear el conjunto de datos final
-    X = np.vstack((X_pedestrian,X_nopedestrian))
-    y = np.hstack((y_pedestrian,y_nopedestrian))
-
-    # Primero, dividimos los datos en entrenamiento (70%) y un conjunto temporal (30%) con estratificación
-    Xtrain, Xtemp, ytrain, ytemp = train_test_split(X, y, test_size=0.3, stratify=y, random_state=42)
-
-    # Luego, dividimos el conjunto temporal en validación y prueba (ambos 15% del total) con estratificación
-    Xval, Xtest, yval, ytest = train_test_split(Xtemp, ytemp, test_size=0.5, stratify=ytemp, random_state=42)
-
-    # Mostremos las dimensiones de la partición generada:
-    print(Xtrain.shape, ytrain.shape)
-    print(Xval.shape, yval.shape)
-    print(Xtest.shape, ytest.shape)
-
-
-    # pipeline para las características numéricas (HOG)
+    # 5. Crear pipeline de preprocesamiento para HOG
     hog_pipe = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),  # Imputar valores faltantes (si los hay)
-        ('scaler', MinMaxScaler())  # Escalar las características entre 0 y 1
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', MinMaxScaler())
     ])
-
-    # Dado que todas las características HOG son numéricas, aplicamos el pipeline a todas las columnas
     columnasTransformer = ColumnTransformer(
-        transformers=[
-            ('hog_features', hog_pipe, slice(0, Xtrain.shape[1]))  # Aplica el pipeline a todas las columnas de HOG
-        ],
-        remainder='passthrough'  # No hay columnas adicionales, pero esto asegura que no se pierda nada
+        transformers=[('hog_features', hog_pipe, slice(0, X_train.shape[1]))],
+        remainder='passthrough'
     )
 
-    # Aplicar las transformaciones a los conjuntos de datos
-    Xtrain_transformed = columnasTransformer.fit_transform(Xtrain)
-    Xval_transformed = columnasTransformer.transform(Xval)
-    Xtest_transformed = columnasTransformer.transform(Xtest)
+    # 6. Convertir a DataFrame para mantener compatibilidad con código original
+    X_train_df = pd.DataFrame(X_train, columns=[f"feature_{i}" for i in range(X_train.shape[1])])
+    X_val_df = pd.DataFrame(X_val, columns=[f"feature_{i}" for i in range(X_val.shape[1])])
+    X_test_df = pd.DataFrame(X_test, columns=[f"feature_{i}" for i in range(X_test.shape[1])])
 
-    # Mostremos las dimensiones después de la transformación
-    print("Dimensiones después de la transformación:")
-    print("Xtrain:", Xtrain_transformed.shape)
-    print("Xval:", Xval_transformed.shape)
-    print("Xtest:", Xtest_transformed.shape)
+    y_train_series = pd.Series(y_train)
+    y_val_series = pd.Series(y_val)
+    y_test_series = pd.Series(y_test)
 
-    # Convertir Xtrain y Xval a DataFrame antes de concatenarlos
-    Xtrain_df = pd.DataFrame(Xtrain, columns=[f"feature_{i}" for i in range(Xtrain.shape[1])])
-    Xval_df = pd.DataFrame(Xval, columns=[f"feature_{i}" for i in range(Xval.shape[1])])
+    # 7. Unir train + val
+    Xtrainval = pd.concat([X_train_df, X_val_df], axis=0)
+    ytrainval = pd.concat([y_train_series, y_val_series], axis=0)
 
-    # Convertir ytrain y yval a Series antes de concatenarlos
-    ytrain_series = pd.Series(ytrain, name="label")
-    yval_series = pd.Series(yval, name="label")
+    # 8. Entrenar modelo
+    trainer = ModelTrainer(columnasTransformer)
 
-    # Entrenar con los parámetros específicos para SVC   
     best_param_grid_svc = {
         'shrinking': True, 
         'random_state': 42, 
@@ -495,56 +443,26 @@ if __name__ == "__main__":
         'degree': 2, 
         'coef0': 0.5, 
         'class_weight': 'balanced', 
-        'C': 100
+        'C': 1
     }
 
-    # Concatenar los conjuntos de entrenamiento y validación
-    Xtrainval = pd.concat([Xtrain_df, Xval_df], axis=0)
-    ytrainval = pd.concat([ytrain_series, yval_series], axis=0)
-
-    # Mostrar las dimensiones después de la concatenación
-    print("Dimensiones después de la concatenación:")
-    print(Xtrainval.shape, ytrainval.shape)
-
-    
-
-    # Ruta del archivo pickle para guardar/cargar el modelo entrenado
+    model_dir = r"C:\Git\TecMonterrrey\NavegacionAutonoma\navegacionautonoma_pip_p310\navegacionautonoma_py310\DeteccionPeatonesSVM\models"  # Usa tu ruta real
     modelo_pickle_path = os.path.join(model_dir, "modelo_entrenado.pkl")
+    os.makedirs(model_dir, exist_ok=True)
 
-    # Crear una instancia de ModelTrainer
-    trainer = ModelTrainer(columnasTransformer)
-
-    # Verificar si el archivo pickle del modelo ya existe
     if os.path.exists(modelo_pickle_path):
-        # Cargar el modelo entrenado desde el archivo pickle
         with open(modelo_pickle_path, "rb") as f:
             best_model = pickle.load(f)
-        print(f"Modelo cargado desde el archivo pickle: {modelo_pickle_path}")
-            
+        print("Modelo cargado.")
     else:
-        # Si no existe, entrenar el modelo y guardarlo
-        print("El archivo pickle no existe. Entrenando el modelo...")
-
-        # Ejecutar RandomizedSearchCV
-        best_model, used_params = trainer.random_search_svc(Xtrainval, ytrainval, Xtest, ytest, best_params=best_param_grid_svc)
-        print("Mejor modelo:", best_model)
-        print("Mejores parámetros:", used_params)
-
-        # Guardar el modelo entrenado en un archivo pickle
+        best_model, used_params = trainer.random_search_svc(Xtrainval, ytrainval, X_test_df, y_test_series, best_params=best_param_grid_svc)
         with open(modelo_pickle_path, "wb") as f:
             pickle.dump(best_model, f)
-        print(f"Modelo entrenado y guardado en: {modelo_pickle_path}")
+        print("Modelo entrenado y guardado.")
 
-    # Mostrar el modelo entrenado o cargado
-    print("Modelo entrenado o cargado:")
-    print(best_model)
-
-     # Crear una instancia de la clase DecisionBoundaryPlotter
+    # 9. Visualizaciones
     plotter = DecisionBoundaryPlotter(best_model, Xtrainval.values, ytrainval.values)
-
-    # Graficar la frontera de decisión
     plotter.plot_decision_boundary()
+    trainer.plot_roc_curve(best_model, Xtrainval, ytrainval, X_test_df, y_test_series)
 
-    # Generar la curva ROC
-    trainer.plot_roc_curve(best_model, Xtrainval, ytrainval, Xtest, ytest)
 
