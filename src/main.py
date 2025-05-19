@@ -506,20 +506,9 @@ if __name__ == "__main__":
 
     # 5. Reducir a 2D con PCA
     model_dir = r"C:\Git\TecMonterrrey\NavegacionAutonoma\navegacionautonoma_pip_p310\navegacionautonoma_py310\DeteccionPeatonesSVM\models"  # Usa tu ruta real
-    os.makedirs(model_dir, exist_ok=True)
-    pca_model_path = os.path.join(model_dir, "modelo_pca.pkl")
-
-    if os.path.exists(pca_model_path):
-        with open(pca_model_path, "rb") as f:
-            X_train_pca = pickle.load(f)
-        print("Modelo PCA cargado desde el archivo.")
-    else:
-        pca = PCA(n_components=2)
-        X_train_pca = pca.fit_transform(X_train)  # Ajustar y transformar el conjunto de entrenamiento
-        with open(pca_model_path, "wb") as f:
-            pickle.dump(pca, f)
-        print("Modelo PCA ajustado y guardado.")
-
+    pca = PCA(n_components=2)
+    # Ajustar y transformar el conjunto de entrenamiento
+    X_train_pca = pca.fit_transform(X_train)  
     # Transformar los conjuntos de validación y prueba
     X_val_pca = pca.transform(X_val)
     X_test_pca = pca.transform(X_test)
