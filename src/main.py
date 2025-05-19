@@ -1,5 +1,6 @@
 import os
 import pickle
+import random
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
@@ -294,7 +295,7 @@ class ModelTrainer:
 
     
 class DecisionBoundaryPlotter:
-    def __init__(self, model, X, y):
+    def __init__(self, model, X, y, pca):
         """
         Inicializa la clase con el modelo, los datos y las etiquetas.
         :param model: Modelo SVC entrenado.
@@ -304,6 +305,7 @@ class DecisionBoundaryPlotter:
         self.model = model
         self.X = X
         self.y = y
+        self.pca = pca
 
     def reduce_dimensions(self):
         """
@@ -371,6 +373,100 @@ class DecisionBoundaryPlotter:
         plt.xlabel("Componente 1")
         plt.ylabel("Componente 2")
         plt.show()
+
+    def plot_decision_boundary_with_model(self):
+        """
+        Grafica la frontera de decisión del modelo junto con los puntos de datos,
+        mostrando las clases correspondientes a cada componente.
+        """
+        # Crear una malla para graficar las fronteras de decisión
+        x_min, x_max = self.X[:, 0].min() - 1, self.X[:, 0].max() + 1
+        y_min, y_max = self.X[:, 1].min() - 1, self.X[:, 1].max() + 1
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.01),
+                                np.arange(y_min, y_max, 0.01))
+
+        # Predecir las etiquetas para cada punto en la malla usando el modelo entrenado
+        Z = self.model.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
+
+        # Graficar las fronteras de decisión
+        plt.contourf(xx, yy, Z, alpha=0.8, cmap=plt.cm.coolwarm)
+
+        # Graficar los puntos de datos con colores según las clases
+        plt.scatter(self.X[self.y == 1, 0], self.X[self.y == 1, 1], c="blue", label="Peatón", edgecolors='k', alpha=0.7)
+        plt.scatter(self.X[self.y == 0, 0], self.X[self.y == 0, 1], c="red", label="No Peatón", edgecolors='k', alpha=0.7)
+
+        # Configurar el título y etiquetas de los ejes
+        plt.title("Fronteras de decisión del modelo SVC (2D)")
+        plt.xlabel("Componente Principal 1")
+        plt.ylabel("Componente Principal 2")
+        plt.legend(loc="upper right")
+        plt.show()
+
+
+    def plot_decision_boundary_with_random_image(self, image_path, hog_processor):
+        """
+        Grafica la frontera de decisión del modelo junto con los puntos de datos
+        y un punto verde que representa una imagen aleatoria.
+        :param image_path: Ruta de la imagen aleatoria.
+        :param hog_processor: Objeto HOGProcessor para procesar la imagen.
+        """
+        # Crear una malla para graficar las fronteras de decisión
+        x_min, x_max = self.X[:, 0].min() - 1, self.X[:, 0].max() + 1
+        y_min, y_max = self.X[:, 1].min() - 1, self.X[:, 1].max() + 1
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.01),
+                             np.arange(y_min, y_max, 0.01))
+
+        # Predecir las etiquetas para cada punto en la malla usando el modelo entrenado
+        Z = self.model.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
+
+        # Graficar las fronteras de decisión
+        plt.contourf(xx, yy, Z, alpha=0.8, cmap=plt.cm.coolwarm)
+
+        # Graficar los puntos de datos
+        plt.scatter(self.X[:, 0], self.X[:, 1], c=self.y, edgecolors='k', cmap=plt.cm.coolwarm)
+
+        # Procesar la imagen aleatoria
+        img_color = cv2.imread(image_path)
+        img_gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+        img_gray = resize(img_gray, (100, 100))
+        hog_features = hog_processor.apply_hog(image=img_gray, visualize=False)
+        hog_features = np.array(hog_features).reshape(1, -1)
+
+        # Reducir la imagen a 2D con PCA
+        img_pca = self.pca.transform(hog_features)
+
+        # Predecir la clase de la imagen
+        predicted_class = self.model.predict(img_pca)[0]
+        print(f"Clase predicha para la imagen: {'Peatón' if predicted_class == 1 else 'No Peatón'}")
+
+        # Graficar el punto verde en el gráfico
+        plt.scatter(img_pca[0, 0], img_pca[0, 1], color='green', s=100, label='Imagen Aleatoria')
+        plt.legend()
+
+        # Configurar el título y etiquetas de los ejes
+        plt.title("Fronteras de decisión del modelo SVC (2D)")
+        plt.xlabel("Componente 1")
+        plt.ylabel("Componente 2")
+        plt.show()
+
+def show_image(image_path, title="Imagen"):
+    """
+    Muestra una imagen dada su ruta.
+    :param image_path: Ruta de la imagen a mostrar.
+    :param title: Título del gráfico.
+    """
+    img_color = cv2.imread(image_path)
+    if img_color is None:
+        print(f"No se pudo cargar la imagen desde la ruta: {image_path}")
+        return
+    img_color_rgb = cv2.cvtColor(img_color, cv2.COLOR_BGR2RGB)  # Convertir de BGR a RGB para matplotlib
+    plt.figure(figsize=(6, 6))
+    plt.title(title)
+    plt.imshow(img_color_rgb)
+    plt.axis("off")
+    plt.show()
     
     
 
@@ -408,31 +504,28 @@ if __name__ == "__main__":
     y_val = np.array(y_val)
     y_test = np.array(y_test)
 
-    # 5. Crear pipeline de preprocesamiento para HOG
-    hog_pipe = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', MinMaxScaler())
-    ])
-    columnasTransformer = ColumnTransformer(
-        transformers=[('hog_features', hog_pipe, slice(0, X_train.shape[1]))],
-        remainder='passthrough'
-    )
+    # 5. Reducir a 2D con PCA
+    model_dir = r"C:\Git\TecMonterrrey\NavegacionAutonoma\navegacionautonoma_pip_p310\navegacionautonoma_py310\DeteccionPeatonesSVM\models"  # Usa tu ruta real
+    os.makedirs(model_dir, exist_ok=True)
+    pca_model_path = os.path.join(model_dir, "modelo_pca.pkl")
 
-    # 6. Convertir a DataFrame para mantener compatibilidad con código original
-    X_train_df = pd.DataFrame(X_train, columns=[f"feature_{i}" for i in range(X_train.shape[1])])
-    X_val_df = pd.DataFrame(X_val, columns=[f"feature_{i}" for i in range(X_val.shape[1])])
-    X_test_df = pd.DataFrame(X_test, columns=[f"feature_{i}" for i in range(X_test.shape[1])])
+    if os.path.exists(pca_model_path):
+        with open(pca_model_path, "rb") as f:
+            X_train_pca = pickle.load(f)
+        print("Modelo PCA cargado desde el archivo.")
+    else:
+        pca = PCA(n_components=2)
+        X_train_pca = pca.fit_transform(X_train)  # Ajustar y transformar el conjunto de entrenamiento
+        with open(pca_model_path, "wb") as f:
+            pickle.dump(pca, f)
+        print("Modelo PCA ajustado y guardado.")
 
-    y_train_series = pd.Series(y_train)
-    y_val_series = pd.Series(y_val)
-    y_test_series = pd.Series(y_test)
+    # Transformar los conjuntos de validación y prueba
+    X_val_pca = pca.transform(X_val)
+    X_test_pca = pca.transform(X_test)
 
-    # 7. Unir train + val
-    Xtrainval = pd.concat([X_train_df, X_val_df], axis=0)
-    ytrainval = pd.concat([y_train_series, y_val_series], axis=0)
-
-    # 8. Entrenar modelo
-    trainer = ModelTrainer(columnasTransformer)
+    # 6. Entrenar modelo con datos reducidos
+    trainer = ModelTrainer(columnasTransformer=None)  # No se necesita ColumnTransformer para datos reducidos
 
     best_param_grid_svc = {
         'shrinking': True, 
@@ -446,23 +539,26 @@ if __name__ == "__main__":
         'C': 1
     }
 
-    model_dir = r"C:\Git\TecMonterrrey\NavegacionAutonoma\navegacionautonoma_pip_p310\navegacionautonoma_py310\DeteccionPeatonesSVM\models"  # Usa tu ruta real
-    modelo_pickle_path = os.path.join(model_dir, "modelo_entrenado.pkl")
-    os.makedirs(model_dir, exist_ok=True)
+    modelo_pickle_path = os.path.join(model_dir, "modelo_entrenado_pca.pkl")
 
     if os.path.exists(modelo_pickle_path):
         with open(modelo_pickle_path, "rb") as f:
             best_model = pickle.load(f)
         print("Modelo cargado.")
     else:
-        best_model, used_params = trainer.random_search_svc(Xtrainval, ytrainval, X_test_df, y_test_series, best_params=best_param_grid_svc)
+        best_model, used_params = trainer.random_search_svc(X_train_pca, y_train, X_test_pca, y_test, best_params=best_param_grid_svc)
         with open(modelo_pickle_path, "wb") as f:
             pickle.dump(best_model, f)
         print("Modelo entrenado y guardado.")
 
-    # 9. Visualizaciones
-    plotter = DecisionBoundaryPlotter(best_model, Xtrainval.values, ytrainval.values)
-    plotter.plot_decision_boundary()
-    trainer.plot_roc_curve(best_model, Xtrainval, ytrainval, X_test_df, y_test_series)
+    # 7. Visualizaciones
+    plotter = DecisionBoundaryPlotter(best_model, X_train_pca, y_train, pca)
+    plotter.plot_decision_boundary_with_model()
+    trainer.plot_roc_curve(best_model, X_train_pca, y_train, X_test_pca, y_test)
 
-
+    # Seleccionar una imagen aleatoria del dataset
+    print("Seleccionando una imagen aleatoria del dataset.")
+    random_image_path = random.choice(X_paths)
+    # Mostrar la imagen seleccionada
+    show_image(random_image_path, title="Imagen Aleatoria Seleccionada")
+    plotter.plot_decision_boundary_with_random_image(random_image_path, hog_processor)
